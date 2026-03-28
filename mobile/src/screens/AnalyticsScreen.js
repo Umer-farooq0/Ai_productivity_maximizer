@@ -80,7 +80,7 @@ export default function AnalyticsScreen() {
     }
   }
 
-  const isHigh = result?.prediction === 'High Performance' || result?.predicted_grade >= HIGH_PERFORMANCE_THRESHOLD;
+  const isHigh = result?.prediction === 'High' || result?.predicted_grade >= HIGH_PERFORMANCE_THRESHOLD;
   const prob = result?.probability ?? result?.confidence ?? 0;
 
   return (
