@@ -7,6 +7,7 @@ import api from '../api';
 
 const DIET_OPTIONS = ['poor', 'fair', 'good', 'excellent'];
 const EXERCISE_OPTIONS = ['none', 'rarely', 'sometimes', 'regularly', 'daily'];
+const HIGH_PERFORMANCE_THRESHOLD = 70;
 
 function SliderRow({ label, value, min, max, step = 1, onChange }) {
   return (
@@ -79,7 +80,7 @@ export default function AnalyticsScreen() {
     }
   }
 
-  const isHigh = result?.prediction === 'High Performance' || result?.predicted_grade >= 70;
+  const isHigh = result?.prediction === 'High Performance' || result?.predicted_grade >= HIGH_PERFORMANCE_THRESHOLD;
   const prob = result?.probability ?? result?.confidence ?? 0;
 
   return (

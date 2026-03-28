@@ -12,7 +12,18 @@ const TYPE_COLORS = {
   default: '#6b7280',
 };
 
-const DAYS = ['Today', 'Tomorrow', 'Day 3', 'Day 4', 'Day 5', 'Day 6', 'Day 7'];
+function getWeekDayLabels() {
+  const labels = ['Today', 'Tomorrow'];
+  const now = new Date();
+  for (let i = 2; i < 7; i++) {
+    const d = new Date(now);
+    d.setDate(now.getDate() + i);
+    labels.push(d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }));
+  }
+  return labels;
+}
+
+const DAYS = getWeekDayLabels();
 
 export default function ScheduleScreen() {
   const [schedule, setSchedule] = useState([]);

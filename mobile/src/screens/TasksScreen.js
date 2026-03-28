@@ -182,7 +182,18 @@ export default function TasksScreen() {
             </ScrollView>
 
             <Text style={styles.label}>Deadline (YYYY-MM-DD)</Text>
-            <TextInput style={styles.input} value={form.deadline} onChangeText={v => setForm(p => ({ ...p, deadline: v }))} placeholder="2024-12-31" placeholderTextColor="#9ca3af" />
+            <TextInput
+              style={styles.input}
+              value={form.deadline}
+              onChangeText={v => setForm(p => ({ ...p, deadline: v }))}
+              placeholder="e.g. 2025-12-31"
+              placeholderTextColor="#9ca3af"
+              maxLength={10}
+              keyboardType="numbers-and-punctuation"
+            />
+            {form.deadline !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(form.deadline) && (
+              <Text style={styles.fieldHint}>Use format YYYY-MM-DD (e.g. 2025-12-31)</Text>
+            )}
 
             <Text style={styles.label}>Difficulty: {form.difficulty}/5</Text>
             <View style={styles.diffRow}>
@@ -233,6 +244,7 @@ const styles = StyleSheet.create({
   typePillText: { color: '#6b7280', fontWeight: '600', fontSize: 13 },
   typePillTextActive: { color: '#fff' },
   diffRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  fieldHint: { fontSize: 11, color: '#f59e0b', marginTop: -12, marginBottom: 12 },
   saveBtn: { backgroundColor: '#3b82f6', borderRadius: 8, padding: 14, alignItems: 'center', marginTop: 8 },
   saveBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
 });
