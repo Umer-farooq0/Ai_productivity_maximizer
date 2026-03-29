@@ -26,10 +26,8 @@ export function AuthProvider({ children }) {
   }
 
   async function login(email, password) {
-    const params = new URLSearchParams();
-    params.append('username', email);
-    params.append('password', password);
-    const res = await api.post('/auth/login', params.toString(), {
+    const formBody = `username=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`;
+    const res = await api.post('/auth/login', formBody, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
     const { access_token } = res.data;
