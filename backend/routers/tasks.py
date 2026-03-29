@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 from database import get_db
@@ -12,8 +12,11 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
 def _calc_priority(task: models.Task) -> float:
-    now = datetime.utcnow()
-    days_left = max((task.deadline - now).total_seconds() / 86400, 0.1)
+    now = datetime.now(timezone.utc)
+    deadline = task.deadline
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=timezone.utc)
+    days_left = max((deadline - now).total_seconds() / 86400, 0.1)
     urgency = 1 / days_left
     difficulty_score = task.difficulty / 5
     hours_score = min(task.estimated_hours, 6) / 6
