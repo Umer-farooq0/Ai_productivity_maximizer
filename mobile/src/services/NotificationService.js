@@ -13,12 +13,16 @@ Notifications.setNotificationHandler({
 
 export async function requestNotificationPermissions() {
   if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('study-sessions', {
-      name: 'Study Sessions',
-      importance: Notifications.AndroidImportance.HIGH,
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#3b82f6',
-    });
+    try {
+      await Notifications.setNotificationChannelAsync('study-sessions', {
+        name: 'Study Sessions',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#3b82f6',
+      });
+    } catch {
+      // setNotificationChannelAsync is not supported in Expo Go; ignore the error
+    }
   }
 
   const { status: existingStatus } = await Notifications.getPermissionsAsync();

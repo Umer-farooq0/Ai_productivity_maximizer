@@ -74,7 +74,9 @@ function RootNavigator() {
 
 export default function App() {
   useEffect(() => {
-    requestNotificationPermissions();
+    requestNotificationPermissions().catch(() => {
+      // Notification permissions are best-effort; ignore failures in Expo Go
+    });
   }, []);
 
   return (

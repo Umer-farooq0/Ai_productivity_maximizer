@@ -5,6 +5,7 @@ import {
   Platform, ScrollView,
 } from 'react-native';
 import { AuthContext } from '../context/AuthContext';
+import { isNetworkError } from '../api';
 
 export default function RegisterScreen({ navigation }) {
   const { register } = useContext(AuthContext);
@@ -23,7 +24,11 @@ export default function RegisterScreen({ navigation }) {
     try {
       await register(form);
     } catch (e) {
-      setError(e.response?.data?.detail || 'Registration failed.');
+      if (isNetworkError(e)) {
+        setError('Cannot reach the server. Make sure the backend is running and your device is on the same Wi-Fi network as your PC.');
+      } else {
+        setError(e.response?.data?.detail || 'Registration failed.');
+      }
     } finally {
       setLoading(false);
     }

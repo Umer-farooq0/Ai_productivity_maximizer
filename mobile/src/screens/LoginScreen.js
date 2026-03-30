@@ -5,6 +5,7 @@ import {
   Platform, ScrollView,
 } from 'react-native';
 import { AuthContext } from '../context/AuthContext';
+import { isNetworkError } from '../api';
 
 export default function LoginScreen({ navigation }) {
   const { login } = useContext(AuthContext);
@@ -20,7 +21,11 @@ export default function LoginScreen({ navigation }) {
     try {
       await login(email, password);
     } catch (e) {
-      setError(e.response?.data?.detail || 'Login failed. Please try again.');
+      if (isNetworkError(e)) {
+        setError('Cannot reach the server. Make sure the backend is running and your device is on the same Wi-Fi network as your PC.');
+      } else {
+        setError(e.response?.data?.detail || 'Login failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
