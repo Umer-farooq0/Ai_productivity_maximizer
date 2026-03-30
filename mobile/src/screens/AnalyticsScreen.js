@@ -18,9 +18,7 @@ function SliderRow({ label, value, min, max, step = 1, onChange }) {
       </View>
       <View style={styles.sliderTrack}>
         {Array.from({ length: Math.floor((max - min) / step) + 1 }, (_, i) => min + i * step).map(v => (
-          <TouchableOpacity key={v} onPress={() => onChange(v)} style={[styles.sliderDot, value === v && styles.sliderDotActive]}>
-            <Text style={{ fontSize: 0 }}>{v}</Text>
-          </TouchableOpacity>
+          <TouchableOpacity key={v} onPress={() => onChange(v)} style={[styles.sliderDot, value === v && styles.sliderDotActive]} />
         ))}
       </View>
       <View style={styles.sliderMinMax}>
