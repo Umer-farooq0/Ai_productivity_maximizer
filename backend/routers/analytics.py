@@ -22,15 +22,24 @@ def get_dashboard(
     completed = sum(1 for t in all_tasks if t.is_completed)
     completion_rate = round(completed / total * 100, 1) if total else 0.0
 
-    # Simple streak: count consecutive days with at least one completed task
+    # Tasks completed today
     today = date.today()
+    today_start = datetime.combine(today, datetime.min.time())
+    today_end = datetime.combine(today, datetime.max.time())
+    completed_today = sum(
+        1 for t in all_tasks
+        if t.is_completed and t.updated_at
+        and today_start <= t.updated_at.replace(tzinfo=None) <= today_end
+    )
+
+    # Simple streak: count consecutive days with at least one completed task
     streak = 0
     for offset in range(30):
         day = today - timedelta(days=offset)
         day_start = datetime.combine(day, datetime.min.time())
         day_end = datetime.combine(day, datetime.max.time())
         has_completion = any(
-            t.is_completed and t.updated_at and day_start <= t.updated_at <= day_end
+            t.is_completed and t.updated_at and day_start <= t.updated_at.replace(tzinfo=None) <= day_end
             for t in all_tasks
         )
         if has_completion:
@@ -44,14 +53,29 @@ def get_dashboard(
     ]
     upcoming_tasks.sort(key=lambda t: t.deadline)
 
+    upcoming_tasks_list = [
+        {
+            "id": t.id,
+            "title": t.title,
+            "task_type": t.task_type.value if hasattr(t.task_type, "value") else t.task_type,
+            "deadline": t.deadline.isoformat(),
+            "priority_score": t.priority_score,
+        }
+        for t in upcoming_tasks[:5]
+    ]
+
     return {
-        "total_tasks": total,
-        "completed_tasks": completed,
-        "pending_tasks": total - completed,
-        "completion_rate": completion_rate,
-        "streak_days": streak,
-        "upcoming_tasks_count": len(upcoming_tasks),
-        "next_deadline": upcoming_tasks[0].deadline.isoformat() if upcoming_tasks else None,
+        "stats": {
+            "total_tasks": total,
+            "completed_tasks": completed,
+            "completed_today": completed_today,
+            "pending_tasks": total - completed,
+            "completion_rate": completion_rate,
+            "current_streak": streak,
+        },
+        # Web frontend uses "upcoming_tasks"; mobile app uses "upcoming_deadlines"
+        "upcoming_tasks": upcoming_tasks_list,
+        "upcoming_deadlines": upcoming_tasks_list,
     }
 
 
