@@ -29,9 +29,13 @@ export default function SchedulePage() {
   })
 
   const generateMutation = useMutation({
-    mutationFn: () => api.post('/schedule/generate'),
+     mutationFn: () => api.post('/schedule/generate', { days: 7 }),
     onSuccess: () => { qc.invalidateQueries(['schedule']); toast.success('Schedule generated!') },
-    onError: (e) => toast.error(e.response?.data?.detail || 'Failed to generate schedule'),
+     onError: (e) => {
+      const detail = e.response?.data?.detail
+      const message = Array.isArray(detail) && detail.length > 0 ? detail[0].msg : detail
+      toast.error(message || 'Failed to generate schedule')
+    },
   })
 
   const slots = view === 'today'

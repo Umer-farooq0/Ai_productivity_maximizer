@@ -33,7 +33,7 @@ export default function DashboardPage() {
 
   const generateSchedule = async () => {
     try {
-      await api.post('/schedule/generate')
+      await api.post('/schedule/generate', { days: 7 })
       toast.success('Schedule generated!')
     } catch {
       toast.error('Failed to generate schedule')
