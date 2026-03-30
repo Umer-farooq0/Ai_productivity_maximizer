@@ -1,16 +1,28 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, ActivityIndicator, Alert,
 } from 'react-native';
 import api from '../api';
+import { scheduleSessionNotifications } from '../services/NotificationService';
 
 const TYPE_COLORS = {
   study: '#3b82f6',
   break: '#10b981',
   namaz: '#8b5cf6',
+  free: '#f59e0b',
   default: '#6b7280',
 };
+
+const TYPE_ICONS = {
+  study: '📖',
+  break: '☕',
+  namaz: '🕌',
+  free: '✅',
+};
+
+const DEFAULT_SCHEDULE_DAYS = 7;
+const BADGE_OPACITY = '22';
 
 function getWeekDayLabels() {
   const labels = ['Today', 'Tomorrow'];
@@ -23,10 +35,23 @@ function getWeekDayLabels() {
   return labels;
 }
 
+function getTargetDateStr(dayOffset) {
+  const d = new Date();
+  d.setDate(d.getDate() + dayOffset);
+  return d.toISOString().split('T')[0];
+}
+
+function formatTime(isoStr) {
+  if (!isoStr) return '--:--';
+  // ISO datetime "2026-03-30T09:00:00" → "09:00"
+  if (isoStr.length >= 16 && isoStr.includes('T')) return isoStr.substring(11, 16);
+  return isoStr.substring(0, 5);
+}
+
 const DAYS = getWeekDayLabels();
 
 export default function ScheduleScreen() {
-  const [schedule, setSchedule] = useState([]);
+  const [weekData, setWeekData] = useState([]);
   const [selectedDay, setSelectedDay] = useState(0);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -35,12 +60,16 @@ export default function ScheduleScreen() {
   const fetchSchedule = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get('/schedule/today');
-      setSchedule(res.data || []);
+      const res = await api.get('/schedule/week');
+      const days = res.data?.schedule || [];
+      setWeekData(days);
       setError('');
+      if (days.length > 0) {
+        scheduleSessionNotifications(days).catch(() => {});
+      }
     } catch {
       setError('No schedule found. Generate one below.');
-      setSchedule([]);
+      setWeekData([]);
     } finally {
       setLoading(false);
     }
@@ -49,6 +78,14 @@ export default function ScheduleScreen() {
   useEffect(() => {
     fetchSchedule();
   }, [fetchSchedule]);
+
+  // Derive current day's time slots from weekData based on selected day tab
+  const currentSlots = useMemo(() => {
+    if (!weekData.length) return [];
+    const dateStr = getTargetDateStr(selectedDay);
+    const dayObj = weekData.find(d => d.date === dateStr);
+    return dayObj?.time_slots || [];
+  }, [weekData, selectedDay]);
 
   async function handleGenerate() {
     Alert.alert(
@@ -60,7 +97,7 @@ export default function ScheduleScreen() {
           text: 'Generate', onPress: async () => {
             setGenerating(true);
             try {
-              await api.post('/schedule/generate');
+              await api.post('/schedule/generate', { days: DEFAULT_SCHEDULE_DAYS });
               await fetchSchedule();
             } catch (e) {
               Alert.alert('Error', e.response?.data?.detail || 'Failed to generate schedule');
@@ -75,8 +112,7 @@ export default function ScheduleScreen() {
 
   function getTypeColor(type) {
     if (!type) return TYPE_COLORS.default;
-    const key = type.toLowerCase();
-    return TYPE_COLORS[key] || TYPE_COLORS.default;
+    return TYPE_COLORS[type.toLowerCase()] || TYPE_COLORS.default;
   }
 
   return (
@@ -102,36 +138,44 @@ export default function ScheduleScreen() {
 
       {loading ? (
         <View style={styles.loader}><ActivityIndicator size="large" color="#3b82f6" /></View>
-      ) : error ? (
+      ) : weekData.length === 0 ? (
         <View style={styles.emptyBox}>
           <Text style={styles.emptyIcon}>📅</Text>
-          <Text style={styles.emptyText}>{error}</Text>
+          <Text style={styles.emptyText}>{error || 'No schedule yet. Tap "Generate" to create one!'}</Text>
         </View>
-      ) : schedule.length === 0 ? (
+      ) : currentSlots.length === 0 ? (
         <View style={styles.emptyBox}>
-          <Text style={styles.emptyIcon}>📅</Text>
-          <Text style={styles.emptyText}>No schedule for today. Generate one!</Text>
+          <Text style={styles.emptyIcon}>🎉</Text>
+          <Text style={styles.emptyText}>No sessions scheduled for this day.</Text>
         </View>
       ) : (
         <ScrollView style={styles.timeline} contentContainerStyle={{ padding: 16 }}>
-          {schedule.map((item, i) => (
-            <View key={item.id || i} style={styles.timelineItem}>
-              <View style={styles.timeCol}>
-                <Text style={styles.timeText}>{item.start_time ? item.start_time.substring(0, 5) : '--:--'}</Text>
-                <View style={styles.timeLine} />
-                <Text style={styles.timeText}>{item.end_time ? item.end_time.substring(0, 5) : '--:--'}</Text>
-              </View>
-              <View style={[styles.itemCard, { borderLeftColor: getTypeColor(item.activity_type), borderLeftWidth: 4 }]}>
-                <Text style={styles.itemTitle}>{item.title || item.task_title || 'Break'}</Text>
-                <View style={[styles.typeBadge, { backgroundColor: getTypeColor(item.activity_type) + '20' }]}>
-                  <Text style={[styles.typeBadgeText, { color: getTypeColor(item.activity_type) }]}>
-                    {item.activity_type || 'general'}
-                  </Text>
+          {currentSlots.map((item, i) => {
+            const color = getTypeColor(item.type);
+            const startTime = formatTime(item.start);
+            const endTime = formatTime(item.end);
+            const icon = TYPE_ICONS[item.type?.toLowerCase()] || '📌';
+            const label = item.label || `${icon} Session`;
+            return (
+              <View key={i} style={styles.timelineItem}>
+                <View style={styles.timeCol}>
+                  <Text style={styles.timeText}>{startTime}</Text>
+                  <View style={[styles.timeDot, { backgroundColor: color }]} />
+                  <View style={styles.timeLine} />
+                  <Text style={styles.timeText}>{endTime}</Text>
                 </View>
-                {item.notes ? <Text style={styles.itemNotes}>{item.notes}</Text> : null}
+                <View style={[styles.itemCard, { borderLeftColor: color, borderLeftWidth: 4 }]}>
+                  <View style={[styles.typeBadge, { backgroundColor: color + BADGE_OPACITY }]}>
+                    <Text style={[styles.typeBadgeText, { color }]}>
+                      {item.type || 'session'}
+                    </Text>
+                  </View>
+                  <Text style={styles.itemTitle}>{label}</Text>
+                  <Text style={styles.itemDuration}>{startTime} – {endTime}</Text>
+                </View>
               </View>
-            </View>
-          ))}
+            );
+          })}
           <View style={{ height: 24 }} />
         </ScrollView>
       )}
@@ -144,7 +188,7 @@ const styles = StyleSheet.create({
   generateBtn: { backgroundColor: '#3b82f6', margin: 16, borderRadius: 12, padding: 14, alignItems: 'center' },
   generateBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
   dayScroll: { maxHeight: 56 },
-  dayChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: '#e5e7eb', marginRight: 8, height: 36 },
+  dayChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: '#e5e7eb', marginRight: 8, height: 36, justifyContent: 'center' },
   dayChipActive: { backgroundColor: '#3b82f6' },
   dayChipText: { color: '#6b7280', fontWeight: '600', fontSize: 13 },
   dayChipTextActive: { color: '#fff' },
@@ -153,13 +197,14 @@ const styles = StyleSheet.create({
   emptyIcon: { fontSize: 56, marginBottom: 16 },
   emptyText: { color: '#6b7280', fontSize: 15, textAlign: 'center' },
   timeline: { flex: 1 },
-  timelineItem: { flexDirection: 'row', marginBottom: 16 },
-  timeCol: { width: 60, alignItems: 'center' },
+  timelineItem: { flexDirection: 'row', marginBottom: 12, alignItems: 'flex-start' },
+  timeCol: { width: 52, alignItems: 'center', paddingTop: 6 },
   timeText: { fontSize: 11, color: '#6b7280', fontWeight: '600' },
-  timeLine: { width: 2, flex: 1, backgroundColor: '#e5e7eb', marginVertical: 4 },
-  itemCard: { flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 14, marginLeft: 12, elevation: 2, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4 },
-  itemTitle: { fontSize: 15, fontWeight: '600', color: '#111827', marginBottom: 6 },
-  typeBadge: { alignSelf: 'flex-start', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 2 },
-  typeBadgeText: { fontSize: 12, fontWeight: '600' },
-  itemNotes: { fontSize: 12, color: '#6b7280', marginTop: 6 },
+  timeDot: { width: 10, height: 10, borderRadius: 5, marginVertical: 4 },
+  timeLine: { width: 2, flex: 1, backgroundColor: '#e5e7eb', marginBottom: 4, minHeight: 16 },
+  itemCard: { flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 12, marginLeft: 10, elevation: 2, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4 },
+  typeBadge: { alignSelf: 'flex-start', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 2, marginBottom: 6 },
+  typeBadgeText: { fontSize: 11, fontWeight: '700', textTransform: 'capitalize' },
+  itemTitle: { fontSize: 14, fontWeight: '600', color: '#111827', marginBottom: 4 },
+  itemDuration: { fontSize: 12, color: '#9ca3af' },
 });
