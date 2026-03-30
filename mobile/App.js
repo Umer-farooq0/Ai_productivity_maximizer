@@ -1,4 +1,4 @@
-import React, { useContext } from 'react';
+import React, { useContext, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -6,6 +6,7 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 
 import { AuthProvider, AuthContext } from './src/context/AuthContext';
+import { requestNotificationPermissions } from './src/services/NotificationService';
 import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
@@ -72,6 +73,10 @@ function RootNavigator() {
 }
 
 export default function App() {
+  useEffect(() => {
+    requestNotificationPermissions();
+  }, []);
+
   return (
     <AuthProvider>
       <NavigationContainer>
