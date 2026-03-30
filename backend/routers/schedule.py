@@ -83,11 +83,11 @@ def get_today_schedule(
         .order_by(models.StudySchedule.created_at.desc())
         .first()
     )
+    today_str = date.today().isoformat()
     if not schedule:
-        raise HTTPException(status_code=404, detail="No schedule found")
+        return {"date": today_str, "schedule": []}
 
     data = json.loads(schedule.schedule_data)
-    today_str = date.today().isoformat()
     today_slots = [d for d in data.get("days", []) if d.get("date") == today_str]
     return {"date": today_str, "schedule": today_slots}
 
@@ -103,11 +103,11 @@ def get_week_schedule(
         .order_by(models.StudySchedule.created_at.desc())
         .first()
     )
+    today = date.today()
     if not schedule:
-        raise HTTPException(status_code=404, detail="No schedule found")
+        return {"week_start": today.isoformat(), "schedule": []}
 
     data = json.loads(schedule.schedule_data)
-    today = date.today()
     week_dates = {(today + timedelta(days=i)).isoformat() for i in range(7)}
     week_slots = [d for d in data.get("days", []) if d.get("date") in week_dates]
     return {"week_start": today.isoformat(), "schedule": week_slots}
