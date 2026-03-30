@@ -101,7 +101,7 @@ export default function SettingsScreen() {
         <View style={styles.divider} />
         <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>Break Reminder</Text>
-          <Text style={styles.infoValue}>Every 25 min ☕</Text>
+          <Text style={styles.infoValue}>AI-personalized ☕</Text>
         </View>
       </View>
 

@@ -10,12 +10,32 @@ import { scheduleBreakReminder, cancelBreakReminder } from '../services/Notifica
 
 const TASK_TYPES = ['assignment', 'exam', 'project', 'reading', 'other'];
 const FILTER_TABS = ['All', 'Pending', 'Completed'];
-const BREAK_REMINDER_MINUTES = 25; // remind user to take a break after this many minutes
+
+// Quick-pick sprint options shown in the Sprint Setup sheet
+const SPRINT_PRESETS = [
+  { label: '15 min', minutes: 15 },
+  { label: '25 min', minutes: 25 },
+  { label: '45 min', minutes: 45 },
+  { label: '1 hour', minutes: 60 },
+  { label: '90 min', minutes: 90 },
+  { label: '2 hours', minutes: 120 },
+];
+
+// How close (in minutes) the AI suggestion must be to a preset for it to be auto-selected
+const AUTO_SELECT_THRESHOLD_MINUTES = 10;
 
 const EMPTY_FORM = {
   title: '', description: '', task_type: 'assignment',
   deadline: '', difficulty: 3, estimated_hours: 2,
 };
+
+/** Format minutes into a human-readable label like "45 min" or "1 h 30 min" */
+function fmtMinutes(m) {
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return rem > 0 ? `${h} h ${rem} min` : `${h} h`;
+}
 
 export default function TasksScreen() {
   const [tasks, setTasks] = useState([]);
@@ -28,11 +48,19 @@ export default function TasksScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // --- Task timer state ---
+  // ── Task timer state ──────────────────────────────────────────────────────
   const [activeTaskId, setActiveTaskId] = useState(null);
-  const [elapsed, setElapsed] = useState(0); // seconds
+  const [elapsed, setElapsed] = useState(0);          // seconds ticked
+  const [sprintMinutes, setSprintMinutes] = useState(null); // chosen sprint length
   const intervalRef = useRef(null);
   const breakNotifIdRef = useRef(null);
+
+  // ── Sprint Setup sheet state ───────────────────────────────────────────────
+  const [sprintSheetTask, setSprintSheetTask] = useState(null); // task awaiting sprint choice
+  const [aiSuggestion, setAiSuggestion] = useState(null);        // { suggested_minutes, rationale }
+  const [aiLoading, setAiLoading] = useState(false);
+  const [customMinutes, setCustomMinutes] = useState('');
+  const [selectedPreset, setSelectedPreset] = useState(null);   // chosen preset index or 'custom'
 
   // Clean up interval on unmount
   useEffect(() => {
@@ -41,18 +69,89 @@ export default function TasksScreen() {
     };
   }, []);
 
-  function startTimer(task) {
-    // Stop any currently running timer first
-    stopTimer(false);
+  /** Open the Sprint Setup bottom-sheet for `task` and load the AI suggestion */
+  function openSprintSheet(task) {
+    setSprintSheetTask(task);
+    setAiSuggestion(null);
+    setCustomMinutes('');
+    setSelectedPreset(null);
+    setAiLoading(true);
 
+    api.post('/analytics/suggest-break', {
+      task_id: task.id,
+      difficulty: task.difficulty || 3,
+      estimated_hours: task.estimated_hours || 1,
+      task_type: task.task_type || 'assignment',
+    })
+      .then(res => {
+        setAiSuggestion(res.data);
+        // Pre-select the closest preset to the suggestion
+        const sug = res.data.suggested_minutes;
+        const best = SPRINT_PRESETS.reduce((prev, cur) =>
+          Math.abs(cur.minutes - sug) < Math.abs(prev.minutes - sug) ? cur : prev
+        );
+        const idx = SPRINT_PRESETS.indexOf(best);
+        // Only auto-select a preset if it's within the threshold of the suggestion
+        setSelectedPreset(Math.abs(best.minutes - sug) <= AUTO_SELECT_THRESHOLD_MINUTES ? idx : 'ai');
+      })
+      .catch(() => {
+        // Network/auth failure: fall back to local heuristic
+        const fallback = localSprintSuggestion(task);
+        setAiSuggestion({ suggested_minutes: fallback, rationale: null });
+        const best = SPRINT_PRESETS.reduce((prev, cur) =>
+          Math.abs(cur.minutes - fallback) < Math.abs(prev.minutes - fallback) ? cur : prev
+        );
+        setSelectedPreset(SPRINT_PRESETS.indexOf(best));
+      })
+      .finally(() => setAiLoading(false));
+  }
+
+  /** Simple local fallback when the backend is unreachable */
+  function localSprintSuggestion(task) {
+    const diff = task.difficulty || 3;
+    const hrs = task.estimated_hours || 1;
+    const diffMap = { 1: 90, 2: 60, 3: 45, 4: 30, 5: 25 };
+    const base = diffMap[diff] || 45;
+    const hoursBonus = hrs >= 3 ? 15 : hrs >= 1.5 ? 0 : -10;
+    return Math.max(15, Math.min(120, Math.round((base + hoursBonus) / 5) * 5));
+  }
+
+  /** Resolve the user's chosen sprint length from sheet state */
+  function resolveChosenMinutes() {
+    if (selectedPreset === 'custom') {
+      const n = parseInt(customMinutes, 10);
+      return Number.isFinite(n) && n >= 5 && n <= 480 ? n : null;
+    }
+    if (selectedPreset === 'ai') {
+      return aiSuggestion?.suggested_minutes ?? null;
+    }
+    if (typeof selectedPreset === 'number' && SPRINT_PRESETS[selectedPreset]) {
+      return SPRINT_PRESETS[selectedPreset].minutes;
+    }
+    return null;
+  }
+
+  function confirmSprintAndStart() {
+    const mins = resolveChosenMinutes();
+    if (!mins) {
+      Alert.alert('Choose a Sprint Time', 'Please pick a sprint duration or enter a custom number of minutes.');
+      return;
+    }
+    const task = sprintSheetTask;
+    setSprintSheetTask(null);
+    startTimer(task, mins);
+  }
+
+  function startTimer(task, mins) {
+    stopTimer(false);
     setActiveTaskId(task.id);
+    setSprintMinutes(mins);
     setElapsed(0);
     intervalRef.current = setInterval(() => {
       setElapsed(prev => prev + 1);
     }, 1000);
 
-    // Schedule a break reminder notification
-    scheduleBreakReminder(task.title, BREAK_REMINDER_MINUTES)
+    scheduleBreakReminder(task.title, mins)
       .then(id => { breakNotifIdRef.current = id; })
       .catch(() => {});
   }
@@ -62,7 +161,6 @@ export default function TasksScreen() {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
-    // Cancel any pending break notification
     if (breakNotifIdRef.current) {
       cancelBreakReminder(breakNotifIdRef.current);
       breakNotifIdRef.current = null;
@@ -78,11 +176,11 @@ export default function TasksScreen() {
       );
     }
     setActiveTaskId(null);
+    setSprintMinutes(null);
     setElapsed(0);
   }
 
-  // ---
-
+  // ── Data fetching ──────────────────────────────────────────────────────────
   const fetchTasks = useCallback(async () => {
     try {
       const res = await api.get('/tasks');
@@ -109,6 +207,7 @@ export default function TasksScreen() {
     return true;
   });
 
+  // ── Task CRUD ──────────────────────────────────────────────────────────────
   function openAdd() { setEditing(null); setForm(EMPTY_FORM); setModalVisible(true); }
   function openEdit(task) {
     setEditing(task);
@@ -148,7 +247,6 @@ export default function TasksScreen() {
   }
 
   async function handleComplete(task) {
-    // If this task's timer is running, stop it first
     if (activeTaskId === task.id) stopTimer(false);
     try {
       await api.patch(`/tasks/${task.id}/complete`);
@@ -194,7 +292,7 @@ export default function TasksScreen() {
       {activeTaskId !== null && (
         <View style={styles.activeBanner}>
           <Text style={styles.activeBannerText}>
-            ⏱️ Timer running — take a break after {BREAK_REMINDER_MINUTES} min!
+            ⏱️ Sprint running — break reminder in {sprintMinutes ? fmtMinutes(sprintMinutes) : '…'}!
           </Text>
         </View>
       )}
@@ -221,7 +319,8 @@ export default function TasksScreen() {
             onComplete={() => handleComplete(item)}
             isTimerActive={activeTaskId === item.id}
             elapsed={activeTaskId === item.id ? elapsed : 0}
-            onStartTimer={() => startTimer(item)}
+            sprintMinutes={activeTaskId === item.id ? sprintMinutes : null}
+            onStartTimer={() => openSprintSheet(item)}
             onStopTimer={() => stopTimer(true)}
           />
         )}
@@ -244,6 +343,86 @@ export default function TasksScreen() {
         <Text style={styles.fabText}>+</Text>
       </TouchableOpacity>
 
+      {/* ── Sprint Setup bottom-sheet ────────────────────────────────────── */}
+      <Modal
+        visible={!!sprintSheetTask}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setSprintSheetTask(null)}
+      >
+        <TouchableOpacity
+          style={styles.sheetOverlay}
+          activeOpacity={1}
+          onPress={() => setSprintSheetTask(null)}
+        />
+        <View style={styles.sheet}>
+          <View style={styles.sheetHandle} />
+          <Text style={styles.sheetTitle}>⏱️ Set Your Sprint Time</Text>
+          <Text style={styles.sheetSubtitle}>
+            How long do you want to focus before taking a break?
+          </Text>
+
+          {/* AI suggestion */}
+          {aiLoading ? (
+            <View style={styles.aiRow}>
+              <ActivityIndicator color="#3b82f6" size="small" />
+              <Text style={styles.aiLoadingText}>  AI is thinking…</Text>
+            </View>
+          ) : aiSuggestion ? (
+            <TouchableOpacity
+              style={[styles.aiCard, selectedPreset === 'ai' && styles.aiCardSelected]}
+              onPress={() => setSelectedPreset('ai')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.aiCardLabel}>🤖 AI Recommends</Text>
+              <Text style={styles.aiCardValue}>{fmtMinutes(aiSuggestion.suggested_minutes)}</Text>
+              {aiSuggestion.rationale ? (
+                <Text style={styles.aiCardRationale} numberOfLines={3}>
+                  {aiSuggestion.rationale}
+                </Text>
+              ) : null}
+            </TouchableOpacity>
+          ) : null}
+
+          {/* Quick-pick presets */}
+          <Text style={styles.sheetSectionLabel}>Or pick a time:</Text>
+          <View style={styles.presetsGrid}>
+            {SPRINT_PRESETS.map((p, idx) => (
+              <TouchableOpacity
+                key={idx}
+                style={[styles.presetChip, selectedPreset === idx && styles.presetChipActive]}
+                onPress={() => setSelectedPreset(idx)}
+              >
+                <Text style={[styles.presetChipText, selectedPreset === idx && styles.presetChipTextActive]}>
+                  {p.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Custom input */}
+          <Text style={styles.sheetSectionLabel}>Or type a custom duration (minutes):</Text>
+          <TextInput
+            style={[styles.customInput, selectedPreset === 'custom' && styles.customInputActive]}
+            value={customMinutes}
+            onChangeText={v => { setCustomMinutes(v); setSelectedPreset('custom'); }}
+            keyboardType="number-pad"
+            placeholder="e.g. 50"
+            placeholderTextColor="#9ca3af"
+            maxLength={3}
+          />
+
+          <TouchableOpacity style={styles.startSprintBtn} onPress={confirmSprintAndStart}>
+            <Text style={styles.startSprintBtnText}>▶ Start Sprint</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.cancelSheetBtn} onPress={() => setSprintSheetTask(null)}>
+            <Text style={styles.cancelSheetBtnText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+
+      {/* ── Add / Edit Task modal ─────────────────────────────────────────── */}
       <Modal visible={modalVisible} animationType="slide" presentationStyle="pageSheet">
         <View style={styles.modal}>
           <View style={styles.modalHeader}>
@@ -360,6 +539,47 @@ const styles = StyleSheet.create({
   },
   fabText: { color: '#fff', fontSize: 32, lineHeight: 36 },
 
+  // ── Sprint Setup sheet ─────────────────────────────────────────────────────
+  sheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' },
+  sheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: 24, paddingBottom: 36,
+  },
+  sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#d1d5db', alignSelf: 'center', marginBottom: 16 },
+  sheetTitle: { fontSize: 20, fontWeight: 'bold', color: '#111827', marginBottom: 6 },
+  sheetSubtitle: { fontSize: 14, color: '#6b7280', marginBottom: 16, lineHeight: 20 },
+
+  aiRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  aiLoadingText: { color: '#6b7280', fontSize: 14 },
+  aiCard: {
+    backgroundColor: '#eff6ff', borderRadius: 14, padding: 14, marginBottom: 16,
+    borderWidth: 2, borderColor: '#bfdbfe',
+  },
+  aiCardSelected: { borderColor: '#3b82f6', backgroundColor: '#dbeafe' },
+  aiCardLabel: { fontSize: 11, fontWeight: '700', color: '#3b82f6', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
+  aiCardValue: { fontSize: 26, fontWeight: 'bold', color: '#1d4ed8', marginBottom: 4 },
+  aiCardRationale: { fontSize: 12, color: '#374151', lineHeight: 18 },
+
+  sheetSectionLabel: { fontSize: 12, fontWeight: '700', color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+  presetsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
+  presetChip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, backgroundColor: '#e5e7eb' },
+  presetChipActive: { backgroundColor: '#3b82f6' },
+  presetChipText: { color: '#374151', fontWeight: '600', fontSize: 14 },
+  presetChipTextActive: { color: '#fff' },
+
+  customInput: {
+    borderWidth: 1.5, borderColor: '#d1d5db', borderRadius: 10,
+    padding: 12, fontSize: 16, color: '#111827', marginBottom: 16, backgroundColor: '#fafafa',
+  },
+  customInputActive: { borderColor: '#3b82f6' },
+
+  startSprintBtn: { backgroundColor: '#3b82f6', borderRadius: 12, padding: 16, alignItems: 'center', marginBottom: 10 },
+  startSprintBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+  cancelSheetBtn: { alignItems: 'center', padding: 8 },
+  cancelSheetBtnText: { color: '#6b7280', fontSize: 15 },
+
+  // ── Add / Edit Task modal ──────────────────────────────────────────────────
   modal: { flex: 1, backgroundColor: '#fff' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
   modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#111827' },

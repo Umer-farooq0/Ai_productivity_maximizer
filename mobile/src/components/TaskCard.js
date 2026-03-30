@@ -21,7 +21,20 @@ function formatElapsed(seconds) {
   return `${h}h ${m}m`;
 }
 
-export default function TaskCard({ task, onLongPress, onComplete, isTimerActive, elapsed, onStartTimer, onStopTimer }) {
+/** Format a sprint length in minutes to a short label */
+function fmtSprint(m) {
+  if (!m) return '';
+  if (m < 60) return `${m} min sprint`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return rem > 0 ? `${h}h ${rem}m sprint` : `${h}h sprint`;
+}
+
+export default function TaskCard({
+  task, onLongPress, onComplete,
+  isTimerActive, elapsed, sprintMinutes,
+  onStartTimer, onStopTimer,
+}) {
   const color = TYPE_COLORS[task.task_type] || TYPE_COLORS.other;
   const diffDots = Array.from({ length: 5 }, (_, i) => i < (task.difficulty || 0));
 
@@ -42,12 +55,16 @@ export default function TaskCard({ task, onLongPress, onComplete, isTimerActive,
           </View>
         </View>
 
-        {/* Active timer display */}
+        {/* Active timer display with sprint label */}
         {isTimerActive && (
           <View style={styles.timerRow}>
             <Text style={styles.timerIcon}>⏱️</Text>
             <Text style={styles.timerText}>{formatElapsed(elapsed || 0)}</Text>
-            <Text style={styles.timerLabel}> — working now</Text>
+            {sprintMinutes ? (
+              <Text style={styles.timerLabel}>  ·  {fmtSprint(sprintMinutes)}</Text>
+            ) : (
+              <Text style={styles.timerLabel}> — working now</Text>
+            )}
           </View>
         )}
 
