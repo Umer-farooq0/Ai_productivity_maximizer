@@ -9,13 +9,25 @@ const TYPE_COLORS = {
   other: '#6b7280',
 };
 
-export default function TaskCard({ task, onLongPress, onComplete }) {
+/** Format seconds → "MM:SS" or "Hh MMm" for longer durations */
+function formatElapsed(seconds) {
+  if (seconds < 3600) {
+    const m = String(Math.floor(seconds / 60)).padStart(2, '0');
+    const s = String(seconds % 60).padStart(2, '0');
+    return `${m}:${s}`;
+  }
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return `${h}h ${m}m`;
+}
+
+export default function TaskCard({ task, onLongPress, onComplete, isTimerActive, elapsed, onStartTimer, onStopTimer }) {
   const color = TYPE_COLORS[task.task_type] || TYPE_COLORS.other;
   const diffDots = Array.from({ length: 5 }, (_, i) => i < (task.difficulty || 0));
 
   return (
     <TouchableOpacity
-      style={[styles.card, task.completed && styles.cardCompleted]}
+      style={[styles.card, task.completed && styles.cardCompleted, isTimerActive && styles.cardActive]}
       onLongPress={onLongPress}
       activeOpacity={0.7}
     >
@@ -29,6 +41,15 @@ export default function TaskCard({ task, onLongPress, onComplete }) {
             <Text style={[styles.typeBadgeText, { color }]}>{task.task_type}</Text>
           </View>
         </View>
+
+        {/* Active timer display */}
+        {isTimerActive && (
+          <View style={styles.timerRow}>
+            <Text style={styles.timerIcon}>⏱️</Text>
+            <Text style={styles.timerText}>{formatElapsed(elapsed || 0)}</Text>
+            <Text style={styles.timerLabel}> — working now</Text>
+          </View>
+        )}
 
         <View style={styles.bottomRow}>
           <View style={styles.dotsRow}>
@@ -47,9 +68,20 @@ export default function TaskCard({ task, onLongPress, onComplete }) {
         </View>
 
         {!task.completed && (
-          <TouchableOpacity style={styles.completeBtn} onPress={onComplete}>
-            <Text style={styles.completeBtnText}>✓ Complete</Text>
-          </TouchableOpacity>
+          <View style={styles.actionRow}>
+            {isTimerActive ? (
+              <TouchableOpacity style={styles.stopBtn} onPress={onStopTimer}>
+                <Text style={styles.stopBtnText}>⏹ Stop Task</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={[styles.startBtn, { borderColor: color }]} onPress={onStartTimer}>
+                <Text style={[styles.startBtnText, { color }]}>▶ Start Task</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.completeBtn} onPress={onComplete}>
+              <Text style={styles.completeBtnText}>✓ Done</Text>
+            </TouchableOpacity>
+          </View>
         )}
       </View>
     </TouchableOpacity>
@@ -57,21 +89,39 @@ export default function TaskCard({ task, onLongPress, onComplete }) {
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: '#fff', marginHorizontal: 16, marginBottom: 8, borderRadius: 12, flexDirection: 'row', overflow: 'hidden', elevation: 2, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4 },
+  card: {
+    backgroundColor: '#fff', marginHorizontal: 16, marginBottom: 10,
+    borderRadius: 14, flexDirection: 'row', overflow: 'hidden',
+    elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 5,
+  },
   cardCompleted: { opacity: 0.6 },
-  typeBar: { width: 4 },
+  cardActive: { borderWidth: 1.5, borderColor: '#3b82f6', elevation: 4 },
+  typeBar: { width: 5 },
   body: { flex: 1, padding: 14 },
-  topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  title: { fontSize: 15, fontWeight: '600', color: '#111827', flex: 1, marginRight: 8 },
+
+  topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  title: { fontSize: 15, fontWeight: '700', color: '#111827', flex: 1, marginRight: 8 },
   titleCompleted: { textDecorationLine: 'line-through', color: '#9ca3af' },
   typeBadge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2 },
   typeBadgeText: { fontSize: 11, fontWeight: '700' },
-  bottomRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+
+  timerRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#eff6ff', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, marginBottom: 8, alignSelf: 'flex-start' },
+  timerIcon: { fontSize: 14, marginRight: 4 },
+  timerText: { fontSize: 15, fontWeight: 'bold', color: '#1d4ed8' },
+  timerLabel: { fontSize: 12, color: '#3b82f6' },
+
+  bottomRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   dotsRow: { flexDirection: 'row', gap: 2 },
   dot: { fontSize: 10 },
   deadline: { fontSize: 12, color: '#6b7280', flex: 1 },
   priorityBadge: { backgroundColor: '#fef3c7', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
   priorityText: { fontSize: 11, fontWeight: 'bold', color: '#d97706' },
-  completeBtn: { marginTop: 10, backgroundColor: '#f0fdf4', borderRadius: 6, padding: 6, alignSelf: 'flex-start' },
-  completeBtnText: { color: '#16a34a', fontSize: 12, fontWeight: '600' },
+
+  actionRow: { flexDirection: 'row', gap: 8 },
+  startBtn: { borderWidth: 1.5, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 6 },
+  startBtnText: { fontSize: 13, fontWeight: '700' },
+  stopBtn: { backgroundColor: '#fee2e2', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 6 },
+  stopBtnText: { color: '#dc2626', fontSize: 13, fontWeight: '700' },
+  completeBtn: { backgroundColor: '#f0fdf4', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 6 },
+  completeBtnText: { color: '#16a34a', fontSize: 13, fontWeight: '600' },
 });
