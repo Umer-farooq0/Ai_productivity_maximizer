@@ -47,9 +47,45 @@ def get_dashboard(
         else:
             break
 
+    # Tasks completed in the last 7 days
+    week_start = datetime.combine(today - timedelta(days=6), datetime.min.time())
+    completed_this_week = sum(
+        1 for t in all_tasks
+        if t.is_completed and t.updated_at
+        and t.updated_at.replace(tzinfo=None) >= week_start
+    )
+
+    # Total study hours from completed study sessions
+    study_sessions = db.query(models.StudySession).filter(
+        models.StudySession.user_id == current_user.id,
+        models.StudySession.session_type == models.SessionTypeEnum.study,
+        models.StudySession.end_time.isnot(None),
+    ).all()
+    total_study_hours = round(
+        sum(
+            (s.end_time - s.start_time).total_seconds() / 3600
+            for s in study_sessions
+            if s.end_time and s.start_time
+        ),
+        1,
+    )
+
+    # Weekly completions: tasks completed per day for the last 7 days
+    weekly_completions = []
+    for offset in range(6, -1, -1):
+        day = today - timedelta(days=offset)
+        day_start = datetime.combine(day, datetime.min.time())
+        day_end = datetime.combine(day, datetime.max.time())
+        count = sum(
+            1 for t in all_tasks
+            if t.is_completed and t.updated_at
+            and day_start <= t.updated_at.replace(tzinfo=None) <= day_end
+        )
+        weekly_completions.append({"day": day.strftime("%a"), "count": count})
+
     upcoming_tasks = [
         t for t in all_tasks
-        if not t.is_completed and t.deadline >= datetime.utcnow()
+        if not t.is_completed and t.deadline is not None and t.deadline >= datetime.utcnow()
     ]
     upcoming_tasks.sort(key=lambda t: t.deadline)
 
@@ -69,10 +105,13 @@ def get_dashboard(
             "total_tasks": total,
             "completed_tasks": completed,
             "completed_today": completed_today,
+            "completed_this_week": completed_this_week,
+            "total_study_hours": total_study_hours,
             "pending_tasks": total - completed,
             "completion_rate": completion_rate,
             "current_streak": streak,
         },
+        "weekly_completions": weekly_completions,
         # Web frontend uses "upcoming_tasks"; mobile app uses "upcoming_deadlines"
         "upcoming_tasks": upcoming_tasks_list,
         "upcoming_deadlines": upcoming_tasks_list,
