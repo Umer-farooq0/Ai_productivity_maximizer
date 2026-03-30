@@ -6,7 +6,7 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 
 import { AuthProvider, AuthContext } from './src/context/AuthContext';
-import { requestNotificationPermissions } from './src/services/NotificationService';
+import { requestNotificationPermissions, schedulePrayerReminders } from './src/services/NotificationService';
 import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
@@ -74,9 +74,13 @@ function RootNavigator() {
 
 export default function App() {
   useEffect(() => {
-    requestNotificationPermissions().catch(() => {
-      // Notification permissions are best-effort; ignore failures in Expo Go
-    });
+    requestNotificationPermissions()
+      .then(granted => {
+        if (granted) schedulePrayerReminders().catch(() => {});
+      })
+      .catch(() => {
+        // Notification permissions are best-effort; ignore failures in Expo Go
+      });
   }, []);
 
   return (

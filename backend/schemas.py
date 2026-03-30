@@ -167,3 +167,17 @@ class PerformancePredictionInput(BaseModel):
 
 class ScheduleGenerateRequest(BaseModel):
     days: int = Field(default=7, ge=1, le=30)
+
+
+# ── Break / Sprint-suggestion schemas ─────────────────────────────────────────
+
+class BreakSuggestionRequest(BaseModel):
+    task_id: Optional[int] = None          # used to look up difficulty / estimated_hours
+    difficulty: int = Field(default=3, ge=1, le=5)
+    estimated_hours: float = Field(default=1.0, gt=0)
+    task_type: str = Field(default="assignment")
+
+
+class BreakSuggestionResponse(BaseModel):
+    suggested_minutes: int
+    rationale: str             # beginner-friendly explanation

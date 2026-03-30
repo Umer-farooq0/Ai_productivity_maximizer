@@ -184,3 +184,117 @@ def get_progress(
         progress.append({"date": day.isoformat(), "created": created, "completed": completed})
 
     return {"period": period, "data": progress}
+
+
+@router.post("/suggest-break", response_model=schemas.BreakSuggestionResponse)
+def suggest_break(
+    req: schemas.BreakSuggestionRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    AI-based sprint (focus session) length recommendation.
+
+    Uses:
+    - Task difficulty and estimated hours
+    - Task type
+    - The user's own historical average completed-session length
+
+    Returns a suggested break interval (minutes) and a plain-English rationale.
+    """
+    difficulty = req.difficulty
+    estimated_hours = req.estimated_hours
+    task_type = (req.task_type or "assignment").lower()
+
+    # If a task_id was supplied, fetch the real task data (overrides request body)
+    if req.task_id:
+        task = db.query(models.Task).filter(
+            models.Task.id == req.task_id,
+            models.Task.user_id == current_user.id,
+        ).first()
+        if task:
+            difficulty = task.difficulty
+            estimated_hours = task.estimated_hours
+            task_type = (
+                task.task_type.value if hasattr(task.task_type, "value") else task.task_type
+            ).lower()
+
+    # ── 1. Compute the user's historical average session length ────────────────
+    completed_sessions = db.query(models.StudySession).filter(
+        models.StudySession.user_id == current_user.id,
+        models.StudySession.session_type == models.SessionTypeEnum.study,
+        models.StudySession.end_time.isnot(None),
+    ).all()
+
+    avg_session_minutes: Optional[float] = None
+    if completed_sessions:
+        durations = [
+            (s.end_time - s.start_time).total_seconds() / 60
+            for s in completed_sessions
+            if s.end_time and s.start_time
+            and 5 <= (s.end_time - s.start_time).total_seconds() / 60 <= 180
+        ]
+        if durations:
+            avg_session_minutes = sum(durations) / len(durations)
+
+    # ── 2. Rule-based component scores ────────────────────────────────────────
+    # Harder tasks need shorter focused bursts; easier tasks allow longer sprints.
+    difficulty_score = {1: 90, 2: 60, 3: 45, 4: 30, 5: 25}.get(difficulty, 45)
+
+    # Different task types require different cognitive loads.
+    type_score = {
+        "reading": 50,
+        "assignment": 45,
+        "project": 60,
+        "exam": 30,
+        "quiz": 25,
+        "midterm": 30,
+        "final": 30,
+        "personal": 45,
+        "other": 45,
+    }.get(task_type, 45)
+
+    # Longer tasks benefit from longer sprints (you need time to get into flow).
+    if estimated_hours >= 3:
+        hours_score = 60
+    elif estimated_hours >= 1.5:
+        hours_score = 45
+    else:
+        hours_score = 25
+
+    # ── 3. Blend scores ───────────────────────────────────────────────────────
+    if avg_session_minutes and avg_session_minutes > 0:
+        # User has history: blend 35% difficulty + 25% type + 20% hours + 20% history
+        blended = (
+            0.35 * difficulty_score
+            + 0.25 * type_score
+            + 0.20 * hours_score
+            + 0.20 * avg_session_minutes
+        )
+        history_note = (
+            f" Your past study sessions average {round(avg_session_minutes)} minutes,"
+            " so we've factored that in too."
+        )
+    else:
+        # No history yet: 40% difficulty + 35% type + 25% hours
+        blended = 0.40 * difficulty_score + 0.35 * type_score + 0.25 * hours_score
+        history_note = ""
+
+    # Round to the nearest 5 minutes; cap between 15 and 120
+    suggested = max(15, min(120, round(blended / 5) * 5))
+
+    # ── 4. Generate a beginner-friendly rationale ─────────────────────────────
+    difficulty_label = {1: "very easy", 2: "easy", 3: "medium", 4: "hard", 5: "very hard"}.get(
+        difficulty, "medium"
+    )
+    rationale = (
+        f"This is a {difficulty_label} {task_type} task estimated at {estimated_hours} hour(s). "
+        f"A {suggested}-minute focus sprint should give you enough time to make good progress "
+        f"without burning out.{history_note} "
+        f"You can always override this and set your own sprint length!"
+    )
+
+    return schemas.BreakSuggestionResponse(
+        suggested_minutes=suggested,
+        rationale=rationale,
+    )
